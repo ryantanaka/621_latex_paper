@@ -6,7 +6,7 @@
 
 \begin{document}
 
-\title{MPI Reduce: From Current Approachs to a Greedy Algorithm}
+\title{MPI Reduce: From Current Approaches to a Greedy Algorithm}
 \author{Ryan Tanaka}
 
 \maketitle
@@ -46,7 +46,7 @@ inherently visible as sheer computation power, high bandwidth, and low latencies
 suboptimal performance, however modern workloads demand collective communications to involve 
 hundreds, even thousands of processes to be working on larger and larger message sizes through 
 different physical network topologies and thus it is crucial that the right reduce algorithm is 
-chosen for the task at hand to avoid bottleknecks.\\    
+chosen for to avoid bottleknecks.\\    
 
 The goal of this study was to implement and compare basic MPI Reduce approaches with a
 greedy pipelined algorithm proposed by Bradley Lowery and Julien Langou \cite{Lowery-13}. Current 
@@ -80,7 +80,7 @@ variables which affect message passing: latency, bandwidth, and computation time
 for a message to be reduced and sent to another process is modeled by the following equation:
 $$T = (\alpha + \beta m + \gamma m)$$
 
-$\alpha$ denotes latency, or the time it takes for a packet to travel through the network before
+\noindent $\alpha$ denotes latency, or the time it takes for a packet to travel through the network before
 it reaches its destnation. $\beta m$, denotes the inverse of the system's bandwidth multiplied by
 the message size, $m$. $\beta m$ represents the time it takes for message of size $m$ to be pushed
 out onto the network before it can be sent off. $\gamma$ denotes the time it takes to compute one 
@@ -88,17 +88,127 @@ unit of $m$. The $\gamma m$ term is important for evaluate a reduce because some
 needs to be applied to the data. However, in the case of a broadcast operation (effectively the
 inverse of a reduce), this term can be ignored. The $\gamma m$ term is also subject to various 
 optmization techniques such as multi-threading, but for this evaluation I will assume $\gamma m$ to
-be effectively 0 since processing power is much greater than bandwidth and latency.
+be effectively 0 since processing power is much greater than bandwidth and latency. \\
+
+Almost all reduction algorithms can be evaluated using the Linear Cost Model, however there are
+circumstances that require empirical analaysis to verify the performance of an algorithm. This is
+the case with the greedy pipelined reduction algorithm. According to Lowery and Langou \cite{Lowery-13},
+there is no closed form model to represent their algorithm and therefore the Linear Cost model will
+be used only in the analysis of the binomial, pipelined, and pipelined binary tree reduction 
+algorithms.
 
 \section{Current Approaches}
+
+\textit{Binomial Reduction}. The binomial reduction works as follows: half of the processes left to be
+reduced are assigned as sending processes while the other half are assigned as receiving processes. After
+the receiving processes have received and reduced their data, half of those receiving processes then
+become sending processes while the other half of the processes that had just received and reduced data
+from the previous step become receiving processes again. This repeats until there is one processes left (the
+root process). The flow of this algorithm resembles a binomial tree. In the case of a non power of two
+number of processes participating in the reduce, the algorithm will still resemble a binomial tree except
+the root node will have one subtree that is not a binomial tree. The following equation represents the
+theoretical running time of a binomial reduction:
+$$T_{binomial} = \lceil \log_2(p) \rceil (\alpha + \beta m + \gamma m)$$
+
+\noindent At most 2 processes can be reduced at a time (one processes sends to one receiving process), therefore
+given p processes, the most that can be reduced at one time in parallel is $p/2$. Lowery and Langou 
+\cite{Lowery-13} point out that latency is much higher than bandwidth in practice and therefore we can
+expect a binomial reduction to be fast when $\alpha \gg \beta m$. This is because $\lceil \log_2(p) \rceil
+\alpha$ is optimal when performing a reduce. My implementation only works on a power of 2 number of 
+processes and process 0 must be selected as the root node. In practice binomial reductions are implemented
+to work without those two contstrains. \\
+
+\textit{Pipelined Reduction}. The pipelined reduction works by splitting up the message into equal sized
+segments (last segment may be smaller) and sending them down a chain of processes arranged in a logical
+topology resembling a singly linked list. One end of the linked list is the tail which only sends segments.
+The other end of the linked list would be the root which will only be receiving and reducing. Processes in
+between both ends will be receiving, reducing, then sending its reduced message to the next process in the
+chain. The following equation represents the theoretical running time of a pipelined reduction:
+$$T_{pipeline} = ((p-1) + 2(q-1))(\alpha + \beta m + \gamma m)$$
+
+\noindent Given p processes, it will take $(p-1)$ steps for the root to finish reducing the first 
+segment and $2(q-1)$ steps to finish reducing the remaining segments, where q is the number of segments. 
+The constant factor of 2 takes into account the fact that there will be “unused links” in between the nodes
+of the linked list like logical topology since we are assuming a Unidirectional Communication Model. 
+When $\alpha \ll \beta m$, pipelining helps to reduce the $\beta m$ term by using smaller messages. For my
+implementation, the root does not need to be 0. \\
+
+\textit{Pipelined Binary Tree Reduction}. The pipelined binary tree reduction is similar to the pipelined
+reduction, however instead of arranging the processes in a single line, a binary tree topology is used
+instead. This has the benefit of reducing the amount of steps it takes for the root node to finish reducing
+the first segment, however takes more time than the pipelined reduction in terms of the amount of time it
+takes for the root to finish reducing the remaining segments. With this implementation, leaf nodes send
+segments to their parents. The root node receives from its left child, reduces, receives from its right 
+child, then reduces. The nodes in between behave like the root node, except after reducing both of its 
+children, it then sends the reduced segment off to its parent. The following equation represents the 
+theoretical running time of a pipelined binary tree reduction:
+$$T_{binary} = 2(\lceil \log_2{(p+1)} \rceil - 1)(\alpha + \beta m + \gamma m) +
+4(q-1)(\alpha + \beta m + \gamma m)$$
+
+\noindent After the root node has finished reducing its first segment, it has to wait 
+$4(q-1)(\alpha + \beta m + \gamma m)$ to finish reducing its next segment. This is twice as bad as the 
+pipelined reduction, however the pipelined binary tree reduction will start working on subsequent segments
+after the first much faster than the pipelined reduction. As the number of processes gets very large, the 
+$2(\lceil \log_2{(p+1)} \rceil - 1)(\alpha + \beta m + \gamma m)$ factor in $T_{binary}$ keeps this
+startup time minimized. It is important to note that the above formula slightly overestimates the time
+it takes for $T_{binary}$. Lowery and Langou \cite{Lowery-13} provide this forumula, and the $4(q-1)(\alpha
++ \beta m + \gamma m)$ term is true in that subsequent segments after the first take that amount of time 
+to reach the root, however there is a unit of time that overlaps when observing the algorithm in practice.
+For example, as the root receives a segment from its right child, the root's left child's starts 
+receiving from its left child in parallel (this does not violate the Unidirectional Communication Model).
+Nonetheless, the formula above gives a good estimate of $T_{binary}$'s theoretical running time. The
+root does not need to be 0 in my implementation and $p$ is not restricted to being $2^h - 1$ for any $h$.\\
+
+\noindent In the case of a pipelined k-ary tree reduction, I would expect its theoretical running time 
+to be bounded by the following formula:
+
+$$T_{k-ary} = k(\lceil \log_k{(p+1)} \rceil - 1)(\alpha + \beta m + \gamma m) +
+2k(q-1)(\alpha + \beta m + \gamma m)$$
+
+\noindent The number of steps it would take for the root to finish the first segment would be 
+further minimized, however the constant factor $k$ introduced by doing so might outweigh the benefits of the $k(\lceil \log_k{p+1} \rceil - 1)$ term.
 
 \section{Greedy Algorithm by B. Lowery and J. Langou}
 
 \section{Benchmark}
 
+All algorithms were tested in a simulated environment using SMPI and SimGrid. The simulated
+cluster consisted of 64 nodes (1 MPI process per node) connected by a crossbar switch. Latency was set to
+20 microseconds and bandwidth set to 10Gbps. Each reduce algorithm was called and had its execution
+time measured using the function MPIWtime(). The operation used in this test was a SUM on INT
+values. Message sizes used in the test ranged from 64 bytes to about 67 megabytes and were incremented
+in powers of 2 ($2^6, 2^7 .. 2^{26}$ bytes). Messages transmitted by the greedy, pipeline, and binary tree
+implementations can be segmented into $q$ equi segments and therefore were tested using 1, 2, 4, 8, and 16
+equi segments.
+
 \section{Findings}
 
 \section{Conclusion}
+
+This paper illustrated the theoretical and empirical running times of current MPI Reduce
+implementations as well as a new greedy pipelined approach. Each implementation performed well in
+different scenarios as demonstrated in the empirical findings section. Theoretically, it is also possible to
+predict the expected performance of these algorithms using the linear cost model. For complicated
+approaches such as the greedy pipelined algorithm, it is necessary to evaluate its performance based on
+empirical findings. To summarize my findings, a binomial reduction is an ideal choice for smaller
+message sizes while a pipelined approach is ideal for larger message sizes. With algorithms that use
+pipelining, segment sizes need to be considered carefully in order to perform well. A bad choice of
+segment sizes will result in a poorly performing reduction. The findings of this paper provide some
+validation for the claims made by Lowery and Langou in regards to the performance of their greedy
+algorithm. \\
+
+The empirical findings in this paper were limited in that the benchmark was run with only 64 MPI
+processes. Ideally, a larger (and smaller) number of processes need to be evaluated to better understand
+these algorithms. Furthermore, pipelined algorithms were tested using only equi segments where q = 1, 2,
+4, 8, and 16, thus covering a minute set of possible segment arrangements. It’s clear that variable sized
+segments can make the most out of these algorithms and therefore should be tested as well. Additionally,
+a Unidirectional Communication Model was used for simplicity, however in practice asynchronous sends
+and receives may be used to further increase performance. Lowery and Langou \cite{Lowery-13} address this 
+in their paper by extending the algorithm to assume a Bidirectional Communication Model. \\
+
+This paper merely scratched the surface of only one aspect of MPI collective communications,
+however provides some insight in regards to the trade offs that are taken into account when using
+one reduction technique over another.
 
 \bibliographystyle{ieeetr}
 \bibliography{sources}
