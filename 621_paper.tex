@@ -1,0 +1,106 @@
+\documentclass{article}
+\usepackage{graphicx}
+\usepackage[a4paper, total={6in, 8in}]{geometry}
+\usepackage{amsmath}
+\usepackage{indentfirst}
+
+\begin{document}
+
+\title{MPI Reduce: From Current Approachs to a Greedy Algorithm}
+\author{Ryan Tanaka}
+
+\maketitle
+
+\begin{abstract}
+Collective communication functions defined by the Message Passing Interface are often used in high 
+performance computing workflows to orchestrate collective actions amongst groups of processes.
+The reduce operation is useful when developers need to combine data stored at each MPI process. 
+Current reduce implementations are highly optimized to minimize the operation's execution time 
+while maximizing networks and process utilization. This paper explores three basic approaches: 
+binomial reductions, pipelined reductions, and pipelined binary tree reductions. Both theoretical 
+and empirical running times are discussed regarding these algorithms. Modern reduce algorithms 
+utilize these basic approaches and captilize on their strengths. This paper also analyzes a new 
+greedy pipelined reduction algorithm and empirically benchmarks it against current approaches. 
+Findings show that binomial reductions are faster for smaller messages while pipelined and pipelined
+binary tree implementations are faster for larger messages. Furthermore, the greedy pipelined 
+algorithm can be faster in all situations, however requires that an optimal message segment size
+be chosen.
+\end{abstract}
+
+\section{Introduction}
+The Message Passing Interface, or MPI, is an established library standard that defines message
+passing behavior. It provides an agreed upon model for moving data from one process to another, which
+is useful for developers working on distributed memory environments. Two important types of 
+communication patterns, point to point, and collective communications, are defined by MPI. The focus
+of this paper is on one specific collective communication operation, \textit{reduce}. The reduce 
+operation is used when individual MPI processes have data that needs to be combined via a commutative
+or associative operation, then returned to a designated root process where further computation may 
+take place. This operation involves the scheduling of $(p-1)$ send/receive pairs where $p$ is the 
+number of processes involved in the operation. In the event that the message being transmitted as $q$
+segments, $(p-1)q$ send/receive pairs must be scheduled. A correct reduce algorithm correctly 
+applies the reduction to the data by a designated operation, does not deadlock (send/receive pairs
+are properly scheduled), and returns the globaly reduced message to the root process. If any of 
+these conditions are not met, the algorithm is not correct. When a small number of processes are 
+involved in a reduce operation, the effects of anaively implemented reduce algorithm may not be 
+inherently visible as sheer computation power, high bandwidth, and low latencies may mask its 
+suboptimal performance, however modern workloads demand collective communications to involve 
+hundreds, even thousands of processes to be working on larger and larger message sizes through 
+different physical network topologies and thus it is crucial that the right reduce algorithm is 
+chosen for the task at hand to avoid bottleknecks.\\    
+
+The goal of this study was to implement and compare basic MPI Reduce approaches with a
+greedy pipelined algorithm proposed by Bradley Lowery and Julien Langou \cite{Lowery-13}. Current 
+MPI Reduce algorithms include binomial, pipelined , and pipelined binary tree 
+reductions. These algorithms were implemented exactly as described by Lowery and Langou 
+\cite{Lowery-13}, Kumar, Sameh, and Nysal \cite{Kumar-16}, and Thakur, Rabenseifner, and Gropp
+\cite{Thakur-05}. All algorithms, including the greedy algorithm, consist of MPI defined point to 
+point communications: MPI Send and MPI Recv. These algorithms were then tested in a simulated 
+environment using SMPI and SimGrid. This paper is laid out as follows. First, I introduce the 
+communication and cost models used to evaluate the three reduction algorithms. Next, I provide an 
+overview of how the greedy pipelined algorithm works. Then I describe the benchmark and subsequent 
+findings.
+
+\section{Models}
+
+Reduce algorithms are executed in parallel by participating processes, therefore various models are
+used to evaluate algorithm performance. These models provide a way to constrain process behavior, as
+well as provide good theoretical estimates for algorithm running time. For this study, I am assuming
+a \textit{Unidirection Communication Model} and use a \textit{Linear Cost Model} to model 
+theoretical performance. \\
+
+\textit{Unidirection Communication Model}. This means that a process can only be in one of two 
+states
+: sending or receiving. For example, a process may not partake in any point to point communication
+operation asynchronously such as sending while receiving data. For simplicity, algorithms are first
+developed assuming this model, then are extended to a \textit{Bi-direction Communication Model} 
+where a process partake in the asynchronous action mentioned above. \\ 
+
+\textit{Linear Cost Model}. The \textit{Linear Cost Model} takes into account three important 
+variables which affect message passing: latency, bandwidth, and computation time. The time it takes
+for a message to be reduced and sent to another process is modeled by the following equation:
+$$T = (\alpha + \beta m + \gamma m)$$
+
+$\alpha$ denotes latency, or the time it takes for a packet to travel through the network before
+it reaches its destnation. $\beta m$, denotes the inverse of the system's bandwidth multiplied by
+the message size, $m$. $\beta m$ represents the time it takes for message of size $m$ to be pushed
+out onto the network before it can be sent off. $\gamma$ denotes the time it takes to compute one 
+unit of $m$. The $\gamma m$ term is important for evaluate a reduce because some type of operation
+needs to be applied to the data. However, in the case of a broadcast operation (effectively the
+inverse of a reduce), this term can be ignored. The $\gamma m$ term is also subject to various 
+optmization techniques such as multi-threading, but for this evaluation I will assume $\gamma m$ to
+be effectively 0 since processing power is much greater than bandwidth and latency.
+
+\section{Current Approaches}
+
+\section{Greedy Algorithm by B. Lowery and J. Langou}
+
+\section{Benchmark}
+
+\section{Findings}
+
+\section{Conclusion}
+
+\bibliographystyle{ieeetr}
+\bibliography{sources}
+
+\end{document}
