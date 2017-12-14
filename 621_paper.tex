@@ -18,8 +18,8 @@ Collective communication functions defined by the Message Passing Interface are 
 performance computing workflows to orchestrate collective actions amongst groups of processes.
 The reduce operation is useful when developers need to combine data stored at each MPI process. 
 Current reduce implementations are highly optimized to minimize the operation's execution time 
-while maximizing networks and process utilization. This paper explores three basic approaches: 
-binomial reductions, pipelined reductions, and pipelined binary tree reductions. Both theoretical 
+while maximizing network and process utilization. This paper explores three basic approaches: 
+binomial, pipelined, and pipelined binary tree reductions. Both theoretical 
 and empirical running times are discussed regarding these algorithms. Modern reduce algorithms 
 utilize these basic approaches and captilize on their strengths. This paper also analyzes a new 
 greedy pipelined reduction algorithm and empirically benchmarks it against current approaches. 
@@ -39,18 +39,18 @@ operation is used when individual MPI processes have data that needs to be combi
 or associative operation, then returned to a designated root process where further computation may 
 take place. This operation involves the scheduling of $(p-1)$ send/receive pairs where $p$ is the 
 number of processes involved in the operation. In the event that the message being transmitted as $q$
-segments, $(p-1)q$ send/receive pairs must be scheduled. A correct reduce algorithm correctly 
+segments, $(p-1)q$ send/receive pairs must be scheduled. A correct reduce algorithm properly 
 applies the reduction to the data by a designated operation, does not deadlock (send/receive pairs
 are properly scheduled), and returns the globaly reduced message to the root process. If any of 
 these conditions are not met, the algorithm is not correct. When a small number of processes are 
-involved in a reduce operation, the effects of anaively implemented reduce algorithm may not be 
+involved in a reduce operation, the effects of a naively implemented reduce algorithm may not be 
 inherently visible as sheer computation power, high bandwidth, and low latencies may mask its 
 suboptimal performance, however modern workloads demand collective communications to involve 
 hundreds, even thousands of processes to be working on larger and larger message sizes through 
 different physical network topologies and thus it is crucial that the right reduce algorithm is 
-chosen for to avoid bottleknecks.\\    
+chosen to avoid bottleknecks.\\    
 
-The goal of this study was to implement and compare basic MPI Reduce approaches with a
+The goal of this study was to implement and compare basic MPI Reduce approaches with the
 greedy pipelined algorithm proposed by Bradley Lowery and Julien Langou \cite{Lowery-13}. Current 
 MPI Reduce algorithms include binomial, pipelined , and pipelined binary tree 
 reductions. These algorithms were implemented exactly as described by Lowery and Langou 
@@ -65,17 +65,17 @@ findings.
 \section{Models}
 
 Reduce algorithms are executed in parallel by participating processes, therefore various models are
-used to evaluate algorithm performance. These models provide a way to constrain process behavior, as
+needed to evaluate algorithm performance. These models provide a way to constrain process behavior, as
 well as provide good theoretical estimates for algorithm running time. For this study, I am assuming
-a \textit{Unidirection Communication Model} and use a \textit{Linear Cost Model} to model 
+a \textit{Unidirectional Communication Model} and use a \textit{Linear Cost Model} to model 
 theoretical performance. \\
 
-\textit{Unidirection Communication Model}. This means that a process can only be in one of two 
+\textit{Unidirectional Communication Model}. This means that a process can only be in one of two 
 states
 : sending or receiving. For example, a process may not partake in any point to point communication
 operation asynchronously such as sending while receiving data. For simplicity, algorithms are first
 developed assuming this model, then are extended to a \textit{Bi-direction Communication Model} 
-where a process partake in the asynchronous action mentioned above. \\ 
+where a process may partake in the asynchronous action mentioned above. \\ 
 
 \textit{Linear Cost Model}. The \textit{Linear Cost Model} takes into account three important 
 variables which affect message passing: latency, bandwidth, and computation time. The time it takes
@@ -86,11 +86,11 @@ $$T = (\alpha + \beta m + \gamma m)$$
 it reaches its destnation. $\beta m$, denotes the inverse of the system's bandwidth multiplied by
 the message size, $m$. $\beta m$ represents the time it takes for message of size $m$ to be pushed
 out onto the network before it can be sent off. $\gamma$ denotes the time it takes to compute one 
-unit of $m$. The $\gamma m$ term is important for evaluate a reduce because some type of operation
+unit of $m$. The $\gamma m$ term is important for evaluating a reduce because some type of operation
 needs to be applied to the data. However, in the case of a broadcast operation (effectively the
 inverse of a reduce), this term can be ignored. The $\gamma m$ term is also subject to various 
 optmization techniques such as multi-threading, but for this evaluation I will assume $\gamma m$ to
-be effectively 0 since processing power is much greater than bandwidth and latency. \\
+be 0 since processing power is much greater than bandwidth and latency. \\
 
 Almost all reduction algorithms can be evaluated using the Linear Cost Model, however there are
 circumstances that require empirical analaysis to verify the performance of an algorithm. This is
@@ -171,6 +171,37 @@ $$T_{k-ary} = k(\lceil \log_k{(p+1)} \rceil - 1)(\alpha + \beta m + \gamma m) +
 further minimized, however the constant factor $k$ introduced by doing so might outweigh the benefits of the $k(\lceil \log_k{(p+1)} \rceil - 1)$ term.
 
 \section{Greedy Algorithm by B. Lowery and J. Langou}
+
+The greedy pipelined reduction algorithm presented by Lowery and Langou \cite{Lowery-13} uses ideas from
+both pipelined and binomial reduction algorithms. Their algorithm is claimed to outperform the
+previously mentioned algorithms when tested theoretically for “medium” sized messages. As the number
+of processes increases, the range of message sizes where this algorithm exceeds also increases. For this
+study, I only examined the algorithm with q = 1,2,4,8 or 16, however in their study, the authors conducted
+a number of experiments on a 64 process platform to determine optimal segment sizes. \\
+
+When the greedy algorithm is used with $q = 1$ (no segmentation/pipelining), it behaves exactly
+like a binomial reduction. Empirical findings from my tests confirmed that this is true. When
+segmentation is used, the algorithm does a binomial reduction on the first segment. During this time, a
+greedy choice is made by the algorithm to assign the sending processes of the first segment engage in a
+binomial type reduction on the second segment amongst themselves. This process continues until all
+segments have been reduced. The algorithm also is restricted to reducing segments in order. For example,
+a process cannot reduce segment $s_2$ before it has completed its reduction of segment $s_1$ . In order to make
+the greedy choice of which segment to send to what process, each process has a “history” array allocated
+on the heap at the start of the reduction. The size of this array is equal to the number of segments, and the
+values in the array are initialized to the number of processes participating in the reduction. Start and end
+counters are also initialized to keep track of values in the array. Values in this array will indicate what
+segment has been sent to what process, and therefore the process can make a decision as to which
+segment to send to what process at a given point in time. Once a value in the history array is decremented
+to 0, that segment is said to be completely done. When the last value in the array is 0, the process is done
+with the reduce operation. In their proof of optimality, the authors refer to these values in the history
+array as "state vectors" where the ending state of one vector can be used as the initial state vector of the 
+following segment \cite{Lowery-13}. \\
+
+The advantage that this algorithm has over other implementations is that the time it takes for the
+first segment to be reduced is $\lceil \log_2(p) \rceil (\alpha + \beta s_1+ \gamma s_1)$, therefore subsequent segments can be started on by
+the root process faster than with the pipelined and pipelined binary tree reduction. In a nutshell, this
+algorithm is a clever way of using binomial reductions and pipelining together in a way that may lead to
+performance improvements given the right segment sizes.
 
 \section{Benchmark}
 
