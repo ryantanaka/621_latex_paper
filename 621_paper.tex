@@ -3,6 +3,8 @@
 \usepackage[a4paper, total={6in, 8in}]{geometry}
 \usepackage{amsmath}
 \usepackage{indentfirst}
+\usepackage{graphicx}
+\graphicspath{ {images/} }
 
 \begin{document}
 
@@ -166,7 +168,7 @@ $$T_{k-ary} = k(\lceil \log_k{(p+1)} \rceil - 1)(\alpha + \beta m + \gamma m) +
 2k(q-1)(\alpha + \beta m + \gamma m)$$
 
 \noindent The number of steps it would take for the root to finish the first segment would be 
-further minimized, however the constant factor $k$ introduced by doing so might outweigh the benefits of the $k(\lceil \log_k{p+1} \rceil - 1)$ term.
+further minimized, however the constant factor $k$ introduced by doing so might outweigh the benefits of the $k(\lceil \log_k{(p+1)} \rceil - 1)$ term.
 
 \section{Greedy Algorithm by B. Lowery and J. Langou}
 
@@ -182,6 +184,68 @@ implementations can be segmented into $q$ equi segments and therefore were teste
 equi segments.
 
 \section{Findings}
+
+\begin{figure}[h]
+    \centering
+    \begin{minipage}{0.5\textwidth}
+	    \includegraphics[width=1\textwidth]{binomial}
+	    \caption{Binomial reduction execution times.}
+	    \label{fig:binomial}
+    \end{minipage}%
+    \centering
+    \begin{minipage}{0.5\textwidth}
+	    \includegraphics[width=1\textwidth]{ratio}
+	    \caption{Comparison of other algorithms against the greedy algorithm with $q=16$}
+	    \label{fig:ratio}
+    \end{minipage}%
+\end{figure}
+
+
+Figure \ref{fig:binomial} illustrates execution times of the binomial reduction, greedy reduction with
+1 segment, and SMPI binomial reduction tested on message sizes mentioned in the Benchmark section.
+This demonstrates that the greedy reduction with one segment (no pipelining) does in fact behave just like
+a standard binomial reduction. The SMPI implementation seems to behave the same, however as message
+sizes increase, it appears to perform much better than both the standard and greedy single segment
+implementations. A brief look at the source code hosted on Github leads me to believe that this may be
+due to the fact that the implementation uses memcpy in the function Datatype::copy(), however cannot
+say for certain until tested. \\
+
+Figure \ref{fig:ratio} uses the greedy algorithm with 16 equi segments as a baseline and
+compares its performance to the other algorithms. These results were computed by taking the
+implementation time of the other algorithms and dividing it by the implementation time of the greedy
+algorithm with 16 equi segments. 16 equi segments were also used for the pipelined and pipelined binary
+tree reductions. The pipelined algorithm performed the worse for smaller message sizes as expected but
+does better for larger message sizes. I would expect it to approach the binary pipelined algorithm
+eventually due to the fact that the pipelined algorithm has a $2(q-1)(\alpha + \beta m + \gamma m)$ value in its
+theoretical running time while the binary pipelined algorithm has a $4(q-1)(\alpha + \beta m + \gamma m)$ value. 
+The binary tree pipelined algorithm performed better than the pipeline algorithm because of the reduced startup
+time for
+the root to start reducing segments after the first. In regards to the binomial algorithm implementations,
+they performed better on the platform for smaller message sizes but worse for larger message sizes as
+expected. The greedy algorithm shows performance improvements over the other implementations for
+message sizes greater than $2^{23}$ bytes. Based on the graph, it is clear that the greedy algorithm could
+perform just as good or better than all other implementations if optimal segment sizes were
+chosen for each message size. For example, using a single segment for smaller messages would
+clearly cause the greedy algorithm to perform just as good as the binomial implementations.
+
+
+\begin{figure}[h]
+    \centering
+    \includegraphics[width=0.5\textwidth]{all}
+    \caption{All execution times.}
+    \label{fig:all}
+\end{figure}
+
+
+Figure \ref{fig:all} displays the execution
+times of all implementations (data from 1, 2, 4,
+and 8 equi segments can be found at the end of
+the paper). HPC systems are so fast that
+differences in performance may only become
+visible for very large message sizes. It can more insightful to use any single
+algorithm as a baseline to determine
+performance instead of just evaluating
+execution times.
 
 \section{Conclusion}
 
